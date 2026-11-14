@@ -1,0 +1,14 @@
+{
+  "python_files_compiled": 17,
+  "cpu_unittest_cases_passed": 9,
+  "cpu_torch_version": "2.15.0+cpu",
+  "upstream_integration": "Applied and parsed on temporary copies; second application is idempotent.",
+  "upstream_commit": "d64414d044a898c6db646dcecd122213accd1732",
+  "original_commit": "dfebe6d884eeb6912a6fca247755fc257f6097cc",
+  "hip_compile_and_execution": "NOT RUN: no HIP compiler or AMD GPU in creation environment",
+  "default_backend": "torch (staged BF16 reference)",
+  "persistent_backend": "hip (embedded source in mono/a16w16.py; opt-in after validation)",
+  "vllm_adapter_requirement": "--enforce-eager",
+  "standalone_hip_graph_tests": "Provided in validate.py; NOT RUN here",
+  "performance": "No benchmark results or speedup claim"
+}

@@ -1,0 +1,22 @@
+{
+  "README.md": "fdbbc684400ae5757ac41d65e9894c8db303288691df4526fa31ffec4814c70f",
+  "VALIDATION.json": "227f18844348a2733a7ecc2d98916f59f89c706c5000d26268f6652cad52da7e",
+  "install_vllm.py": "106973ed0687f346ef6efbd4ee3a1eca17be85ae92e1a40078dc115a231f2764",
+  "pyproject.toml": "bba72ece40076bc9c56a90c51ce5652a1e82edc4d27efb3da58eedc8cd613d2c",
+  "specialized_decode/__init__.py": "5dc95717691216711961a810b1aa214ecb411e847bccd994163143c83c0233e3",
+  "specialized_decode/integration.py": "183a5fafa5716172147f611205d9f3d0aa7c809925d55897461017482e9656b8",
+  "specialized_decode/mono/__init__.py": "c5ac3efd8223167c0c2863bd25743eb67759e387a4125617193ecadbf8159917",
+  "specialized_decode/mono/a16w16.py": "5ec0dfe573d609484d9ee603eaffc407432cd6649211a0b26de9477cef0dcfa1",
+  "specialized_decode/mono/ffn.py": "b501d3e25c2b013d6582807d851c9b7a6a6f93d383e1892f342b7ad862ca649c",
+  "specialized_decode/mono/residency.py": "b37f3cd67b1b3521412bda43b73fd445646a3f80683360250ed1c0083c5b5c31",
+  "specialized_decode/mono/runner.py": "879542239c1231f9c6d1b0f27f1d6ec3f89da62f398294c32927566c2b18fa4b",
+  "specialized_decode/mono/sync.py": "51e92c9f7d55d2851483141cb92faecff6f33792b71fbfd18223cb40fa3e26d0",
+  "specialized_decode/runtime/__init__.py": "9618968804d97badd22d956c60d0fd8ee64793a9e0abbd2da7f61b4a76ed23e9",
+  "specialized_decode/runtime/decode.py": "e9e4ad1b0870b43c68bd03e1f2423b8ac7e1b6dc24cc861266380ff097a7e33d",
+  "specialized_decode/runtime/executor.py": "a73a21a3af066fd7a99470d7f617fd0fd2e40e60685d5c98ffc101724aa97317",
+  "specialized_decode/runtime/guards.py": "d74652afde0075daa055631e9b5947f67cc2d9b759bc023e9ca1f471de8638ba",
+  "specialized_decode/runtime/spec.py": "3aeb65a9ca6bedd7087565d5b32b4d22a02f6192f083f0ac1b5b76af94e01ac4",
+  "specialized_decode/runtime/weights.py": "da4bf29a47a5f30514351f63c91ee07dc10eea1afabfd2b218a29922b55f5f86",
+  "tests/test_cpu.py": "8883354cd64e041b2ca8b64f582dd08eef2564730f616dc22827d7c44048405c",
+  "validate.py": "7b9ea537de13f86e3bcce48f931b1c0b8832bd1c20560b3c41a85e72c6b6c3db"
+}
