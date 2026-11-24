@@ -10,7 +10,8 @@ Row splits are deliberately uneven (base + remainder) instead of padding the
 sequence, so no attention mask is needed and results stay numerically equivalent
 to the single-GPU path.
 
-Targets the MiniMax H3 API introduced by ComfyUI commit 8d534945.
+Targets the MiniMax H3 API introduced by ComfyUI commit 8d534945, with support
+for baked-in PDD / PDD LoRA FinalLayer grids introduced by ComfyUI commit ede4e5f.
 sp_forward mirrors MiniMaxH3Model._forward and must be re-checked when it changes.
 """
 
@@ -37,6 +38,10 @@ from comfy.ldm.minimax.model import (
     unpack_audio,
     unpatchify_video,
 )
+try:
+    from comfy.ldm.minimax.model import pdd_grid
+except ImportError:
+    pdd_grid = None
 from comfy.ldm.modules.attention import AttentionTensorContainer, optimized_attention
 
 PROFILE_OPS = bool(os.environ.get("MINIMAX_SP_PROFILE_OPS"))
@@ -96,61 +101,6 @@ class SPContext:
     def local(self):
         return self.splits[self.rank]
 
-def all_to_all_single_ring_p2p(
-    output: torch.Tensor,
-    input: torch.Tensor,
-    output_split_sizes: list[int] | None = None,
-    input_split_sizes: list[int] | None = None,
-    group: dist.ProcessGroup | None = None,
-    async_op: bool = False,
-):
-    assert not async_op, "async_op=True is not supported in multi-step ring schedule"
-
-    p = dist.get_world_size(group)
-    rank = dist.get_rank(group)
-
-    # Default to equal splits along dim 0 when None (matching PyTorch semantics)
-    if input_split_sizes is None:
-        assert input.size(0) % p == 0
-        input_split_sizes = [input.size(0) // p] * p
-    if output_split_sizes is None:
-        assert output.size(0) % p == 0
-        output_split_sizes = [output.size(0) // p] * p
-
-    # Split input and output along dim 0 into per-rank views (zero-copy)
-    in_chunks = torch.split(input, input_split_sizes, dim=0)
-    out_chunks = torch.split(output, output_split_sizes, dim=0)
-
-    # Step 0: Local self-copy
-    if input_split_sizes[rank] > 0:
-        out_chunks[rank].copy_(in_chunks[rank])
-
-    # Steps 1..p-1: Collision-free 1-to-1 shift permutation
-    for step in range(1, p):
-
-        start = time.perf_counter_ns()
-        dst = (rank + step) % p
-        src = (rank - step + p) % p
-
-        ops = []
-        if input_split_sizes[dst] > 0:
-            ops.append(
-                dist.P2POp(dist.isend, in_chunks[dst].contiguous(), dst, group=group)
-            )
-        if output_split_sizes[src] > 0:
-            ops.append(
-                dist.P2POp(dist.irecv, out_chunks[src], src, group=group)
-            )
-
-        if ops:
-            reqs = dist.batch_isend_irecv(ops)
-            for req in reqs:
-                req.wait()
-        end = time.perf_counter_ns()
-        elapsed_us = (end - start) / 1_000
-        if rank == 0:
-            print(f"Step {step} ops {ops} P2P time: {elapsed_us:.2f} µs")
-    return output
 
 def a2a_gather_seq_scatter_heads(t, ctx):
     """[s_local, H, D] -> [S_total, H/P, D]."""
@@ -160,7 +110,7 @@ def a2a_gather_seq_scatter_heads(t, ctx):
     chunk = hp * dim
     send = t.reshape(s_local, p, chunk).transpose(0, 1).contiguous().view(-1)
     out = torch.empty(ctx.seq_len * chunk, dtype=t.dtype, device=t.device)
-    all_to_all_single_ring_p2p(
+    dist.all_to_all_single(
         out, send,
         output_split_sizes=[n * chunk for n in ctx.splits],
         input_split_sizes=[s_local * chunk] * p,
@@ -175,7 +125,7 @@ def a2a_scatter_seq_gather_heads(t, ctx):
     p = ctx.world
     s_local = ctx.local
     out = torch.empty(p * s_local * chunk, dtype=t.dtype, device=t.device)
-    all_to_all_single_ring_p2p(
+    dist.all_to_all_single(
         out, t.contiguous().view(-1),
         output_split_sizes=[s_local * chunk] * p,
         input_split_sizes=[n * chunk for n in ctx.splits],
@@ -408,7 +358,6 @@ def sp_forward(dit, x, timestep, context, transformer_options, minimax_payload, 
     else:
         t_emb = dit.time_embedder(t_vals).to(dtype)
 
-
     rope_freqs = rope_rotation_table(dit.rope_freqs(layout.position_ids, device), dtype)
     local_segments = shard_segments(mod_segments, ctx.start, ctx.stop)
     rope_for_blocks = rope_freqs[:, ctx.start:ctx.stop].contiguous()
@@ -442,11 +391,23 @@ def sp_forward(dit, x, timestep, context, transformer_options, minimax_payload, 
                 return (0, 0, row[:0] if torch.is_tensor(row) else row)
             return (lo-ctx.start, hi-ctx.start, row[lo-a:hi-a] if torch.is_tensor(row) else row)
 
-        v_local, a_local = dit.final_layer(h, t_emb, local_seg(video_seg), local_seg(audio_seg),
-                                          sigma_v, transformer_options.get("sample_sigmas"), (shift_v, shift_a))
+        if pdd_grid is not None and hasattr(dit.final_layer, "pdd_steps"):
+            n_pdd = dit.final_layer.pdd_steps
+            final_arg = (pdd_grid(n_pdd, shift_v), pdd_grid(n_pdd, shift_a))
+        else:
+            final_arg = (shift_v, shift_a)
 
-        v = _gather_rows(v_local, counts_for(video_seg), ctx, dit.final_layer.video_out.out_features, device)
-        a = _gather_rows(a_local, counts_for(audio_seg), ctx, dit.final_layer.audio_out.out_features, device)
+        v_local, a_local = dit.final_layer(
+            h, t_emb, local_seg(video_seg), local_seg(audio_seg),
+            sigma_v, transformer_options.get("sample_sigmas"), final_arg,
+        )
+
+        v_dim = v_local.shape[-1] if v_local is not None else getattr(
+            dit.final_layer, "video_dim", dit.final_layer.video_out.out_features
+        )
+        a_dim = a_local.shape[-1] if a_local is not None else dit.final_layer.audio_out.out_features
+        v = _gather_rows(v_local, counts_for(video_seg), ctx, v_dim, device)
+        a = _gather_rows(a_local, counts_for(audio_seg), ctx, a_dim, device)
     if PROFILE_OPS and rank == 0:
         prof_report(time.perf_counter() - t_fwd)
     if rank != 0:
